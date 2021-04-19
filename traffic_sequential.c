@@ -26,6 +26,8 @@ void update_data(Vehicle*, int**, int, int); //update the vehicle and lane data,
 int is_vehicle_outofbounds(Vehicle* vehicle); //check if the vehicle already reached the end of the lane
 void print_vehicles(Vehicle*);
 void print_lanes(int**);
+void free_vehicles(Vehicle*);
+void free_lanes(int**);
 
 int main(){
     srand(time(0));
@@ -41,6 +43,9 @@ int main(){
         update_rules(vehicle, lane);
         print_lanes(lane);
     }
+
+    free_vehicles(vehicle);
+    free_lanes(lane);
 
     return 0;
 }
@@ -208,4 +213,17 @@ void print_lanes(int** lane){
 
         printf("\n");
     }
+}
+
+void free_vehicles(Vehicle* vehicle){
+    free(vehicle);
+}
+
+void free_lanes(int** lane){
+    for(int i = 0; i < LANES_COUNT; i++)
+    {
+        free(lane[i]);
+    }
+
+    free(lane);
 }
