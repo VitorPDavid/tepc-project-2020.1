@@ -15,7 +15,7 @@ MAX_VELOCITY = 4 # 5
 VEHICLE_LENGHT = 2 # 6
 RUNWAYS_LENGHT = 2
 # if NEW_VEHICLE_DELAY = -1 read a file with name vehicles_timestamp to get time to arivel new vehicles
-NEW_VEHICLE_DELAY = 5
+NEW_VEHICLE_DELAY = -1 #5
 SLOW_DOWN_PROBABILITY = 0.3
 MUST_PRINT_RESULTS = True
 
@@ -48,7 +48,6 @@ def start_simulation():
             show_highway(highway, stations)
         step += 1
         time.sleep(2)
-
     show_highway(highway)
 
 def start_variabels():
@@ -62,7 +61,6 @@ def start_variabels():
     }
     old_highway = deepcopy(highway)
     step = 1
-    new_vehicle(vehicles, old_highway)
 
     return highway, old_highway, step, vehicles, stations
 
@@ -86,8 +84,7 @@ def must_exec(step):
 def simulation_step(highway, old_highway, step, vehicles, stations):
     change_velocities(old_highway, vehicles, stations)
     move_vehicles(highway, old_highway, vehicles, stations)
-    if step % NEW_VEHICLE_DELAY == 0:
-        new_vehicle(vehicles, highway)
+    create_new_vehicles(highway, vehicles, step)
     old_highway = deepcopy(highway)
     return highway, old_highway
 
@@ -108,6 +105,9 @@ def get_new_velocity(highway, runway_index, cell_index):
             other_vehicle_position = index
     
     return apply_rules(highway, runway_index, cell_index, other_vehicle_position)
+
+def must_check_cell(cell):
+    return cell and cell.velocity != 0
 
 def apply_rules(highway, runway_index, cell_index, other_vehicle_position):
     old_velocity = highway[runway_index][cell_index].velocity
@@ -141,10 +141,23 @@ def move_vehicles(highway, old_highway, vehicles, stations):
     for vehicle in vehicles_to_drop:
         vehicles.remove(vehicle)
 
-def must_check_cell(cell):
-    return cell and cell.velocity != 0
+def create_new_vehicles(highway, vehicles, step):
+    if NEW_VEHICLE_DELAY > 0:
+        if step % NEW_VEHICLE_DELAY == 0:
+            new_vehicle(highway, vehicles)
+    else:
+        new_vehicle_from_file(highway, vehicles, step)
 
-def new_vehicle(vehicles, highway, where=0):
+def new_vehicle_from_file(highway, vehicles, step):
+    with open('vehicles_timestamp.txt', 'r') as vehicle_files:
+        for line in vehicle_files:
+            line = int(line)
+            if step == line:
+                new_vehicle(highway, vehicles)
+            elif line > step:
+                break
+
+def new_vehicle(highway, vehicles, where=0):
     vehicles.append(
         Vehicle(velocity=1, x=where, y=0)
     )
