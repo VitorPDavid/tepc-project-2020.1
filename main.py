@@ -1,9 +1,3 @@
-"""
-    Para esse trabalho cada celula tem o tamanho de 3.5m
-    A velocidade maxima dos carros é de 17.5 m/s ou 63 km/h ou 5 celulas/s, esse valor foi escolhido para facilitar as contas
-    e ser proximo do valor maximo real do BRT: 60km/h
-    O veiculo tem o tamanho de 21 metros ou 6 celulas
-"""
 import random
 import time
 
@@ -11,15 +5,15 @@ from math import floor
 from copy import deepcopy 
 
 # change this variables to modify simulation values
-HIGHWAY_LENGHT = 6000 # 10.5 KM
-MAX_VELOCITY = 5
-VEHICLE_LENGHT = 6
+HIGHWAY_LENGHT = 6000 # 21 KM
+MAX_VELOCITY = 5 # 17.5 m/s or 63 km/h
+VEHICLE_LENGHT = 6 # 21 m
 VEHICLE_IGLE_TIME = 60 # 1 mim
-STATION_LENGHT = 3 * VEHICLE_LENGHT
+STATION_LENGHT = 3 * VEHICLE_LENGHT # 63 m
 # if NEW_VEHICLE_DELAY = -1 read a file with name vehicles_timestamp to get time to arivel new vehicles
-TIME_BETWEEN_STEPS = 0.5
+TIME_BETWEEN_STEPS = 0.5 # s
 #time in seconds to simulate
-TIME_OF_SIMULATION = 3600
+TIME_OF_SIMULATION = 3600 # 1 h
 NEW_VEHICLE_DELAY = -1
 SLOW_DOWN_PROBABILITY = 0.25
 MUST_PRINT_RESULTS = True
@@ -388,13 +382,12 @@ def new_vehicle(highway, vehicles, where=0, stations=None):
 
 def show_highway(highway, stations):
     runway = highway[0]
-    print('-', end='')
     for cell_index, cell in enumerate(runway):
         if cell:
-            print(f'-{cell.velocity}-', end='')
+            print(f'{cell.velocity}', end='')
         else:
-            print(f'- -', end='')
-    print('-\n')
+            print(f'-', end='')
+    print('\n')
 
     stations_index = get_stations_index(stations)
 
@@ -402,11 +395,11 @@ def show_highway(highway, stations):
     for cell_index, cell in enumerate(runway):
         if cell_index in stations_index:
             if cell:
-                print(f'-{cell.velocity}-', end='')
+                print(f'{cell.velocity}', end='')
             else:
-                print(f'- -', end='')
+                print(f'-', end='')
         else:
-            print(f'   ', end='')
+            print(f' ', end='')
     print('\n')
 
 def get_stations_index(stations):
