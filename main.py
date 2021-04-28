@@ -7,22 +7,28 @@
 import random
 import time
 
+from math import floor
 from copy import deepcopy 
 
-HIGHWAY_LENGHT = 50 # 6000
-MAX_VELOCITY = 4 # 5
-VEHICLE_LENGHT = 2 # 6
-VEHICLE_IGLE_TIME = 5
+# change this variables to modify simulation values
+HIGHWAY_LENGHT = 6000 # 10.5 KM
+MAX_VELOCITY = 5
+VEHICLE_LENGHT = 6
+VEHICLE_IGLE_TIME = 60 # 1 mim
 STATION_LENGHT = 3 * VEHICLE_LENGHT
-RUNWAYS_LENGHT = 2
 # if NEW_VEHICLE_DELAY = -1 read a file with name vehicles_timestamp to get time to arivel new vehicles
-NEW_VEHICLE_DELAY = -1 #5
+TIME_BETWEEN_STEPS = 0.5
+#time in seconds to simulate
+TIME_OF_SIMULATION = 3600
+NEW_VEHICLE_DELAY = -1
 SLOW_DOWN_PROBABILITY = 0.25
 MUST_PRINT_RESULTS = True
 
-# veiculos passando as estações 2 e 3 direto
-# veiculo n esta parando na pista principal quando n tem espaco na estacao
-# veiculos saindo da estacao estao com prioridade
+# don't change this if you don't know what you're doing
+RUNWAYS_LENGHT = 2
+VEHICLE = 'VEHICLE'
+STATION = 'STATION'
+STATION_STOP = 'STOP'
 
 class Vehicle:
     def __init__(self, velocity=0, x=None, y=None, stations=None, igle_time=None):
@@ -32,9 +38,10 @@ class Vehicle:
         self.stations = stations or []
         self.igle_time = igle_time or VEHICLE_IGLE_TIME
         self.stoped = False
+        self.await_to_get_in = False
 
     def __str__(self):
-        return f'{self.velocity}'
+        return f'Ve [{self.x}][{self.y}] vel={self.velocity}'
 
     def __repr__(self):
         return self.__str__()
@@ -44,6 +51,7 @@ class Station:
         self.x = x
         self.y = y
         self.lenght = lenght
+        self.get_in_x = self.x + VEHICLE_LENGHT - 1
     
     def __repr__(self):
         return f'St {self.x} lenght:{self.lenght}'
@@ -51,22 +59,24 @@ class Station:
 def start_simulation():
     highway, old_highway, step, vehicles, stations = start_variabels()
     while must_exec(step):
-        highway, old_highway = simulation_step(highway, old_highway, step, vehicles, stations)
+        highway, old_highway, end_simulation = simulation_step(highway, old_highway, step, vehicles, stations)
         if MUST_PRINT_RESULTS:
             show_highway(highway, stations)
+            time.sleep(TIME_BETWEEN_STEPS)      
+        if end_simulation:
+            break
         step += 1
-        time.sleep(1)
-    show_highway(highway)
+    show_highway(highway, stations)
 
 def start_variabels():
     random.seed(10000)
     vehicles = []
     stations = load_stations()
-    highway = {
-        runway: {
-            position: None for position in range(0, HIGHWAY_LENGHT)
-        } for runway in range(0, RUNWAYS_LENGHT)
-    }
+    highway = [
+        [
+            None for position in range(0, HIGHWAY_LENGHT)
+        ] for runway in range(0, RUNWAYS_LENGHT)
+    ]
     old_highway = deepcopy(highway)
     step = 1
 
@@ -84,7 +94,7 @@ def load_stations():
 
 def must_exec(step):
     must_continue = True
-    if step >= 100:
+    if step >= TIME_OF_SIMULATION:
         must_continue = False
 
     return must_continue
@@ -92,9 +102,14 @@ def must_exec(step):
 def simulation_step(highway, old_highway, step, vehicles, stations):
     change_runway(highway, old_highway, vehicles, stations)
     move_vehicles(highway, old_highway, vehicles, stations)
-    create_new_vehicles(highway, vehicles, step)
+    file_end = create_new_vehicles(highway, vehicles, step)
+    end_simulation = False
+    if file_end:
+        end_simulation = True
     old_highway = deepcopy(highway)
-    return highway, old_highway
+    return highway, old_highway, end_simulation
+
+# Change Runway
 
 def change_runway(highway, old_highway, vehicles, stations):
     stations_index = get_stations_index(stations)
@@ -103,31 +118,58 @@ def change_runway(highway, old_highway, vehicles, stations):
             move_on_station(vehicle, highway, old_highway, stations)
 
 def move_on_station(vehicle, highway, old_highway, stations):
-    station = get_station(vehicle.x, stations)
-    if must_change_runway(vehicle, station, old_highway):
-        old_highway[vehicle.y][vehicle.x] = None
-        highway[vehicle.y][vehicle.x] = None
-        if vehicle.y == 0:
-            vehicle.y = 1
+    station, station_index = get_station(vehicle.x, stations)
+    if must_change_runway(vehicle, station, station_index):
+        if can_change_runway(vehicle, station, old_highway):
+            vehicle.await_to_get_in = False
+            old_highway[vehicle.y][vehicle.x] = None
+            highway[vehicle.y][vehicle.x] = None
+            if vehicle.y == 0:
+                vehicle.y = 1
+            else:
+                vehicle.y = 0
+            old_highway[vehicle.y][vehicle.x] = vehicle
         else:
-            vehicle.y = 0
-        old_highway[vehicle.y][vehicle.x] = vehicle
-
+            vehicle.await_to_get_in = True
+        
 def get_station(x, stations):
-    for station in stations:
+    for station_index, station in enumerate(stations):
         if x >= station.x and x <= station.x + station.lenght - 1:
-            return station
+            return station, station_index + 1
 
-def must_change_runway(vehicle, station, highway):
-    return (
-        (vehicle.x == station.x + VEHICLE_LENGHT - 1
-         and highway[1][vehicle.x] is None)
-        or (vehicle.x == station.x + station.lenght - 1
-         and highway[0][vehicle.x] is None
-         and vehicle.stoped == False)
-    )
+def must_change_runway(vehicle, station, station_index):
+    if vehicle.y == 0:
+        return vehicle.x == station.x + VEHICLE_LENGHT - 1 and station_index in vehicle.stations
+    else:
+        return vehicle.x == station.x + station.lenght - 1
 
+def can_change_runway(vehicle, station, highway):
+    if vehicle.y == 0:
+        min_range = station.get_in_x
+        max_range = station.get_in_x + VEHICLE_LENGHT
 
+        return not any(highway[1][min_range: max_range])
+    else:
+        bumper = vehicle.x - VEHICLE_LENGHT + 1
+
+        min_range = bumper - MAX_VELOCITY
+        if min_range < 0:
+            min_range = 0
+        max_range = vehicle.x + VEHICLE_LENGHT + 1
+        if max_range > HIGHWAY_LENGHT:
+            max_range = HIGHWAY_LENGHT
+
+        can_change = False
+        for near_by_vehicle in highway[0][min_range: max_range]:
+            if near_by_vehicle and near_by_vehicle.x + near_by_vehicle.velocity < vehicle.x - VEHICLE_LENGHT:
+                can_change = True
+                break
+        else:
+            can_change = True
+
+        return can_change
+
+# Move vehicles
 
 def move_vehicles(highway, old_highway, vehicles, stations):
     change_velocities(old_highway, vehicles, stations)
@@ -136,6 +178,8 @@ def move_vehicles(highway, old_highway, vehicles, stations):
         highway[vehicle.y][vehicle.x] = None
         if vehicle.x + vehicle.velocity < HIGHWAY_LENGHT:
             vehicle.x = vehicle.x + vehicle.velocity
+            if vehicle.stoped:
+                vehicle.velocity = 0
             highway[vehicle.y][vehicle.x] = vehicle
         else:
             vehicles_to_drop.append(vehicle)
@@ -145,53 +189,95 @@ def move_vehicles(highway, old_highway, vehicles, stations):
 
 def change_velocities(old_highway, vehicles, stations):
     for vehicle in vehicles:
-        vehicle.velocity = get_new_velocity(old_highway, vehicle, stations)
+        vehicle.velocity = move_rules(old_highway, vehicle, stations)
 
-def get_new_velocity(highway, vehicle, stations):
-    next_vehicle_position = -1
-    vehicle_move_range = vehicle.x + vehicle.velocity + VEHICLE_LENGHT  + 1
-    end_of_range = vehicle_move_range if vehicle_move_range < HIGHWAY_LENGHT else HIGHWAY_LENGHT
-    for index in range(vehicle.x + 1, end_of_range):
-        range_cell = highway[vehicle.y][index]
-        if must_check_cell(range_cell):
-            next_vehicle_position = index
+def move_rules(highway, vehicle, stations):
+    if vehicle.y == 0:
+        new_velocity = apply_highway_rules(vehicle, highway, stations)
+    else:
+        new_velocity = apply_station_rules(vehicle, highway, stations)
+
+    return new_velocity
+
+def apply_highway_rules(vehicle, highway, stations):
+    old_velocity = vehicle.velocity
+    vehicle_or_station, barrier_position = has_station_or_vehicle_near_by(vehicle, highway, stations)
+    if vehicle.await_to_get_in:
+        new_velocity = 0
+    else:
+        if vehicle_or_station == VEHICLE:
+            new_velocity = rule_vehicle_near_by(vehicle, barrier_position)
+        elif vehicle_or_station == STATION:
+            new_velocity = rule_station_near_by(vehicle, barrier_position)
+        else:
+            chance = random_slow_down(old_velocity)
+            if chance:
+                new_velocity = old_velocity - 1
+            elif old_velocity + 1 <= MAX_VELOCITY:
+                new_velocity = old_velocity + 1
+            else:
+                new_velocity = old_velocity
+
+    return new_velocity
+
+def has_station_or_vehicle_near_by(vehicle, highway, stations):
+    vehicle_or_station = None
+    barrier_posistion = -1
+    vehicle_near_by = get_near_by_vehicle_position(vehicle, highway)
+    next_station = get_near_by_station(vehicle, stations)
+
+    if vehicle_near_by == -1 and next_station != -1:
+        vehicle_or_station = STATION
+        barrier_posistion = next_station
+    elif next_station == -1 and vehicle_near_by != -1:
+        vehicle_or_station = VEHICLE
+        barrier_posistion = vehicle_near_by
+    elif next_station == -1 and vehicle_near_by == -1:
+        vehicle_or_station = None
+        barrier_posistion = -1
+    elif vehicle_near_by - VEHICLE_LENGHT + 1 <= next_station:
+        vehicle_or_station = VEHICLE
+        barrier_posistion = vehicle_near_by
+    else:
+        vehicle_or_station = STATION
+        barrier_posistion = next_station
+
+    return vehicle_or_station, barrier_posistion
+
+def get_near_by_vehicle_position(vehicle, highway):
+    near_by_vehicle_position = -1
+    colission_range = get_max_deslocation(vehicle) + VEHICLE_LENGHT
+    end_of_range = colission_range if colission_range <= HIGHWAY_LENGHT else HIGHWAY_LENGHT
+    for cell_index in range(vehicle.x + 1, end_of_range):
+        cell = highway[vehicle.y][cell_index]
+        if has_vehicle(cell):
+            near_by_vehicle_position = cell_index
             break
 
-    return apply_rules(highway, vehicle, next_vehicle_position, stations)
+    return near_by_vehicle_position
 
-def must_check_cell(cell):
-    return cell is not None
-
-def apply_rules(highway, vehicle, next_vehicle_position, stations):
-    if vehicle.y == 0:
-        new_velocity = apply_in_highway_rules(highway, vehicle, next_vehicle_position, stations)
-    else:
-        new_velocity = apply_in_station_rules(highway, vehicle, next_vehicle_position, stations)
-
-    return new_velocity
-
-def apply_in_highway_rules(highway, vehicle, next_vehicle_position, stations):
-    old_velocity = vehicle.velocity
-    station = get_next_station(vehicle, stations)
-
-    if station:
-        new_velocity = rule_station_near_by(vehicle, station)
-    elif next_vehicle_position != -1:
-        new_velocity = rule_vehicle_near_by(vehicle, next_vehicle_position)
-    else:
-        chance = random_slow_down(old_velocity)
-        if chance:
-            new_velocity = old_velocity - 1
-        elif old_velocity + 1 <= MAX_VELOCITY:
-            new_velocity = old_velocity + 1
-        else:
-            new_velocity = old_velocity
+def get_near_by_station(vehicle, stations):
+    near_by_station_position = -1
+    next_station = get_next_station(vehicle, stations)
+    get_in_range = get_max_deslocation(vehicle)
     
-    return new_velocity
+    if next_station and next_station.get_in_x <= get_in_range:
+        near_by_station_position = next_station.get_in_x
 
-def apply_in_station_rules(highway, vehicle, next_vehicle_position, stations):
+    return near_by_station_position
+
+def get_next_station(vehicle, stations):
+    for index, station in enumerate(stations):
+        if index + 1 in vehicle.stations and vehicle.x <= station.x:
+            return station
+
+def get_max_deslocation(vehicle):
+    return vehicle.x + vehicle.velocity + 1
+
+def apply_station_rules(vehicle, highway, stations):
+    vehicle_near_by = get_near_by_vehicle_position(vehicle, highway)
+    station, _ = get_station(vehicle.x, stations)
     old_velocity = vehicle.velocity
-    station = get_station(vehicle.x, stations)
 
     if vehicle.stoped:
         if vehicle.igle_time > 0:
@@ -200,32 +286,64 @@ def apply_in_station_rules(highway, vehicle, next_vehicle_position, stations):
         else:
             vehicle.igle_time = VEHICLE_IGLE_TIME
             vehicle.stoped = False
-            new_velocity = 0
+            new_velocity = 1
     else:
-        if next_vehicle_position != -1:
-            new_velocity = rule_vehicle_near_by(vehicle, next_vehicle_position)
-        else:
-            if cant_move_in_station(vehicle, station):
-                new_velocity = rule_station_end(vehicle, station)
-            elif old_velocity + 1 <= MAX_VELOCITY:
-                new_velocity = old_velocity + 1
-            
-    
+        vehicle_or_stop, barrier_position = has_vehicle_or_stop_near_by(vehicle, highway, stations)
+        if vehicle_or_stop == VEHICLE:
+            new_velocity = rule_vehicle_near_by(vehicle, barrier_position)
+        elif vehicle_or_stop == STATION_STOP:
+            new_velocity = rule_station_stop(vehicle, barrier_position)
+        elif cant_move_in_station(vehicle, station):
+            new_velocity = rule_station_end(vehicle, station)
+        elif old_velocity + 1 <= MAX_VELOCITY:
+            new_velocity = old_velocity + 1
+
     return new_velocity
 
-def get_next_station(vehicle, stations):
-    
-    for index, station in enumerate(stations):
-        if (index + 1 in vehicle.stations
-            and vehicle.x <= station.x
-            and vehicle.x + vehicle.velocity + 1 >= station.x + VEHICLE_LENGHT - 1):
-            return station
+def has_vehicle_or_stop_near_by(vehicle, highway, stations):
+    vehicle_or_stop = None
+    barrier_posistion = -1
+    vehicle_near_by = get_near_by_vehicle_position(vehicle, highway)
+    station_stop = get_near_by_stop(vehicle, stations)
 
-def rule_vehicle_near_by(vehicle, next_vehicle_position):
-    return next_vehicle_position - vehicle.x - VEHICLE_LENGHT
+    if vehicle_near_by == -1 and station_stop != -1:
+        vehicle_or_stop = STATION_STOP
+        barrier_posistion = station_stop
+    elif station_stop == -1 and vehicle_near_by != -1:
+        vehicle_or_stop = VEHICLE
+        barrier_posistion = vehicle_near_by
+    elif station_stop == -1 and vehicle_near_by == -1:
+        vehicle_or_stop = None
+        barrier_posistion = -1
+    elif vehicle_near_by - VEHICLE_LENGHT + 1 <= station_stop:
+        vehicle_or_stop = VEHICLE
+        barrier_posistion = vehicle_near_by
+    else:
+        vehicle_or_stop = STATION_STOP
+        barrier_posistion = station_stop
 
-def rule_station_near_by(vehicle, station):
-    return station.x + VEHICLE_LENGHT - 1 - vehicle.x
+    return vehicle_or_stop, barrier_posistion
+
+def rule_station_stop(vehicle, barrier_position):
+    vehicle.stoped = True
+    return barrier_position - vehicle.x
+
+def get_near_by_stop(vehicle, stations):
+    near_by_station_position = -1
+    station, _ = get_station(vehicle.x, stations)
+    get_in_range = get_max_deslocation(vehicle)
+    stop_position = station.x - 1 + (floor(station.lenght/(2*VEHICLE_LENGHT)) + 1) * VEHICLE_LENGHT
+
+    if stop_position <= get_in_range and vehicle.x < stop_position:
+        near_by_station_position = stop_position
+
+    return near_by_station_position
+
+def rule_vehicle_near_by(vehicle, near_by_vehicle_position):
+    return near_by_vehicle_position - vehicle.x - VEHICLE_LENGHT
+
+def rule_station_near_by(vehicle, near_by_station_position):
+    return near_by_station_position - vehicle.x
 
 def random_slow_down(old_velocity):
     return SLOW_DOWN_PROBABILITY >= random.random() and old_velocity > 1
@@ -234,18 +352,19 @@ def cant_move_in_station(vehicle, station):
     return vehicle.x + vehicle.velocity + 1 > station.x + station.lenght - 1
 
 def rule_station_end(vehicle, station):
-    vehicle.stoped = True
-    station_end = station.x + station.lenght - 1
-    return station_end - vehicle.x
+    return station.x + station.lenght - 1 - vehicle.x
+
+def has_vehicle(cell):
+    return cell is not None
 
 
-
+# utils
 def create_new_vehicles(highway, vehicles, step):
     if NEW_VEHICLE_DELAY > 0:
         if step % NEW_VEHICLE_DELAY == 0:
             new_vehicle(highway, vehicles)
     else:
-        new_vehicle_from_file(highway, vehicles, step)
+        return new_vehicle_from_file(highway, vehicles, step)
 
 def new_vehicle_from_file(highway, vehicles, step):
     with open('vehicles_timestamp.txt', 'r') as vehicle_files:
@@ -257,6 +376,8 @@ def new_vehicle_from_file(highway, vehicles, step):
                 new_vehicle(highway, vehicles, stations=stations)
             elif time_to_create > step:
                 break
+        else:
+            return True
 
 def new_vehicle(highway, vehicles, where=0, stations=None):
     vehicles.append(
@@ -265,12 +386,10 @@ def new_vehicle(highway, vehicles, where=0, stations=None):
     new_vehicle = vehicles[-1]
     highway[new_vehicle.y][new_vehicle.x] = new_vehicle
 
-
-
 def show_highway(highway, stations):
     runway = highway[0]
     print('-', end='')
-    for cell_index, cell in runway.items():
+    for cell_index, cell in enumerate(runway):
         if cell:
             print(f'-{cell.velocity}-', end='')
         else:
@@ -280,7 +399,7 @@ def show_highway(highway, stations):
     stations_index = get_stations_index(stations)
 
     runway = highway[1]
-    for cell_index, cell in runway.items():
+    for cell_index, cell in enumerate(runway):
         if cell_index in stations_index:
             if cell:
                 print(f'-{cell.velocity}-', end='')
