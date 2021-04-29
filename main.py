@@ -1,5 +1,6 @@
 import random
 import time
+import timeit
 
 from math import floor
 from copy import deepcopy 
@@ -16,16 +17,17 @@ TIME_BETWEEN_STEPS = 0.5 # s
 TIME_OF_SIMULATION = 3600 # 1 h
 NEW_VEHICLE_DELAY = -1
 SLOW_DOWN_PROBABILITY = 0.25
-MUST_PRINT_RESULTS = True
+MUST_PRINT_RESULTS = False
+SEED_TO_RANDOM_LIB = 10000 # can be None
 
 # don't change this if you don't know what you're doing
 RUNWAYS_LENGHT = 2
 VEHICLE = 'VEHICLE'
 STATION = 'STATION'
 STATION_STOP = 'STOP'
-
+VEHICLES_DATA = []
 class Vehicle:
-    def __init__(self, velocity=0, x=None, y=None, stations=None, igle_time=None):
+    def __init__(self, velocity=0, x=None, y=None, stations=None, igle_time=None, init_step=None):
         self.velocity = velocity
         self.x = x
         self.y = y
@@ -33,6 +35,7 @@ class Vehicle:
         self.igle_time = igle_time or VEHICLE_IGLE_TIME
         self.stoped = False
         self.await_to_get_in = False
+        self.init_step = init_step
 
     def __str__(self):
         return f'Ve [{self.x}][{self.y}] vel={self.velocity}'
@@ -52,6 +55,7 @@ class Station:
 
 def start_simulation():
     highway, old_highway, step, vehicles, stations = start_variabels()
+    init_time = timeit.default_timer()
     while must_exec(step):
         highway, old_highway, end_simulation = simulation_step(highway, old_highway, step, vehicles, stations)
         if MUST_PRINT_RESULTS:
@@ -60,10 +64,12 @@ def start_simulation():
         if end_simulation:
             break
         step += 1
+    end_time = timeit.default_timer()
+    write_data(end_time - init_time, step)
     show_highway(highway, stations)
 
 def start_variabels():
-    random.seed(10000)
+    random.seed(SEED_TO_RANDOM_LIB)
     vehicles = []
     stations = load_stations()
     highway = [
@@ -95,13 +101,31 @@ def must_exec(step):
 
 def simulation_step(highway, old_highway, step, vehicles, stations):
     change_runway(highway, old_highway, vehicles, stations)
-    move_vehicles(highway, old_highway, vehicles, stations)
+    move_vehicles(highway, old_highway, vehicles, stations, step)
     file_end = create_new_vehicles(highway, vehicles, step)
     end_simulation = False
     if file_end:
         end_simulation = True
     old_highway = deepcopy(highway)
     return highway, old_highway, end_simulation
+
+def write_data(simulation_time, last_step):
+    with open('results.txt', 'a', encoding='utf-8') as result_file:
+        result_file.write('---------------------------- inico dos resultados -------------------------------\n')
+        vm_geral = 0
+        vkm_geral = 0
+        for data in VEHICLES_DATA:
+            init = data['init']
+            finish = data['finish']
+            vm = (3.5*HIGHWAY_LENGHT)/(finish - init)
+            vm_geral += vm
+            vkm = vm*3.6
+            vkm_geral += vkm
+            result_file.write(f'inicio: {init}, fim: {finish} e velocidade media: {vm:.4f} m/s ou {vkm:.4f} km/h\n')
+        total_vehicles = len(VEHICLES_DATA)
+        result_file.write(f'Geral: inicio: 1, fim: {last_step} e velocidade media: {vm_geral/total_vehicles:.4f} m/s ou {vkm_geral/total_vehicles:.4f} km/h\n')
+        result_file.write(f'tempo de execução da simulação: {simulation_time:.4f} s\n')
+        result_file.write('---------------------------- fim dos resultados -------------------------------\n')
 
 # Change Runway
 
@@ -133,7 +157,7 @@ def get_station(x, stations):
 
 def must_change_runway(vehicle, station, station_index):
     if vehicle.y == 0:
-        return vehicle.x == station.x + VEHICLE_LENGHT - 1 and station_index in vehicle.stations
+        return vehicle.x == station.get_in_x and station_index in vehicle.stations
     else:
         return vehicle.x == station.x + station.lenght - 1
 
@@ -165,7 +189,7 @@ def can_change_runway(vehicle, station, highway):
 
 # Move vehicles
 
-def move_vehicles(highway, old_highway, vehicles, stations):
+def move_vehicles(highway, old_highway, vehicles, stations, step):
     change_velocities(old_highway, vehicles, stations)
     vehicles_to_drop = []
     for vehicle in vehicles:
@@ -179,6 +203,7 @@ def move_vehicles(highway, old_highway, vehicles, stations):
             vehicles_to_drop.append(vehicle)
 
     for vehicle in vehicles_to_drop:
+        VEHICLES_DATA.append({'init': vehicle.init_step, 'finish': step})
         vehicles.remove(vehicle)
 
 def change_velocities(old_highway, vehicles, stations):
@@ -262,7 +287,7 @@ def get_near_by_station(vehicle, stations):
 
 def get_next_station(vehicle, stations):
     for index, station in enumerate(stations):
-        if index + 1 in vehicle.stations and vehicle.x <= station.x:
+        if index + 1 in vehicle.stations and vehicle.x <= station.get_in_x:
             return station
 
 def get_max_deslocation(vehicle):
@@ -356,7 +381,7 @@ def has_vehicle(cell):
 def create_new_vehicles(highway, vehicles, step):
     if NEW_VEHICLE_DELAY > 0:
         if step % NEW_VEHICLE_DELAY == 0:
-            new_vehicle(highway, vehicles)
+            new_vehicle(highway, vehicles, step)
     else:
         return new_vehicle_from_file(highway, vehicles, step)
 
@@ -367,39 +392,43 @@ def new_vehicle_from_file(highway, vehicles, step):
             time_to_create = int(time_to_create)
             if step == time_to_create:
                 stations = [int(x) for x in stations.split(',')]
-                new_vehicle(highway, vehicles, stations=stations)
+                new_vehicle(highway, vehicles, step, stations=stations)
             elif time_to_create > step:
                 break
         else:
             return True
 
-def new_vehicle(highway, vehicles, where=0, stations=None):
-    vehicles.append(
-        Vehicle(velocity=1, x=where, y=0, stations=stations)
-    )
-    new_vehicle = vehicles[-1]
+def new_vehicle(highway, vehicles, step, where=0, stations=None, ):
+    new_vehicle = Vehicle(velocity=1, x=where, y=0, stations=stations, init_step=step)
+    vehicles.append(new_vehicle)
     highway[new_vehicle.y][new_vehicle.x] = new_vehicle
 
 def show_highway(highway, stations):
     runway = highway[0]
     for cell_index, cell in enumerate(runway):
-        if cell:
-            print(f'{cell.velocity}', end='')
+        if cell_index < 79:
+            if cell:
+                print(f'{cell.velocity}', end='')
+            else:
+                print(f'-', end='')
         else:
-            print(f'-', end='')
+            break
     print('\n')
 
     stations_index = get_stations_index(stations)
 
     runway = highway[1]
     for cell_index, cell in enumerate(runway):
-        if cell_index in stations_index:
-            if cell:
-                print(f'{cell.velocity}', end='')
+        if cell_index < 79:
+            if cell_index in stations_index:
+                if cell:
+                    print(f'{cell.velocity}', end='')
+                else:
+                    print(f'-', end='')
             else:
-                print(f'-', end='')
+                print(f' ', end='')
         else:
-            print(f' ', end='')
+            break
     print('\n')
 
 def get_stations_index(stations):
